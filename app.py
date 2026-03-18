@@ -203,10 +203,10 @@ with st.sidebar:
     deptos_all = sorted(df_year['departamento'].unique())
     deptos = st.multiselect("Departamentos", options=deptos_all, default=deptos_all)
 
-    # Informe primordial: umbral CUIT ovinos
+    # Informe primordial: umbral CUIT — sigue al tipo_stock seleccionado
     st.markdown("---")
     st.markdown("**Informe de productores**")
-    umbral_cuit = st.number_input("Umbral ovinos para informe CUIT", min_value=0, value=1000, step=100)
+    umbral_cuit = st.number_input(f"Umbral {tipo_stock} para informe CUIT", min_value=0, value=1000, step=100)
 
     st.markdown("---")
     st.caption(f"Datos cargados: {len(df):,} registros · {df['periodo'].nunique()} periodos")
@@ -214,7 +214,7 @@ with st.sidebar:
 # ─── FILTERED DATA ────────────────────────────────────────────────────────────
 mask         = (df_year[col_stock] >= min_animales) & (df_year['departamento'].isin(deptos))
 df_filtered  = df_year[mask].copy()
-df_cuit_inf  = df_year[(df_year['total ovinos'] >= umbral_cuit) & (df_year['departamento'].isin(deptos))].copy()
+df_cuit_inf  = df_year[(df_year[col_stock] >= umbral_cuit) & (df_year['departamento'].isin(deptos))].copy()
 
 # ─── HEADER ──────────────────────────────────────────────────────────────────
 col_h1, col_h2 = st.columns([3, 1])
@@ -323,25 +323,26 @@ with tab1:
 # TAB 2 · INFORME CUIT (primordial)
 # ════════════════════════════════════════════════════════════════════
 with tab2:
-    st.markdown(f"### Productores ovinos con ≥ {umbral_cuit} cabezas · Ciclo {año_sel}")
-    st.markdown(f"*Universo de CUITs únicos aplicando el umbral y departamentos seleccionados*")
+    label_ganado = tipo_stock.lower()  # "ovinos" o "bovinos"
+    st.markdown(f"### Productores {label_ganado} con ≥ {umbral_cuit:,} cabezas · Ciclo {año_sel}")
+    st.markdown(f"*Universo de CUITs únicos — filtro: {tipo_stock} ≥ {umbral_cuit:,} · departamentos seleccionados*")
 
     cols_informe = ['cuit cuil', 'establecimiento', 'departamento', 'renspa',
                     'total ovinos', 'total bovinos', 'superficie']
-    # Agrega condicion si existe
     if 'condicion' in df_cuit_inf.columns:
         cols_informe.append('condicion')
 
     df_informe = (df_cuit_inf[cols_informe]
-                  .sort_values('total ovinos', ascending=False)
+                  .sort_values(col_stock, ascending=False)   # ← ordena por el tipo elegido
                   .reset_index(drop=True))
-    df_informe.index += 1  # 1-based
+    df_informe.index += 1
 
     # Resumen rápido
     r1, r2, r3 = st.columns(3)
     r1.metric("Establecimientos", f"{len(df_informe):,}")
     r2.metric("CUITs únicos", f"{df_informe['cuit cuil'].nunique():,}")
-    r3.metric("Ovinos acumulados", f"{int(df_informe['total ovinos'].sum()):,}".replace(",","."))
+    r3.metric(f"{tipo_stock} acumulados",          # ← label dinámico
+              f"{int(df_informe[col_stock].sum()):,}".replace(",","."))
 
     st.dataframe(df_informe, use_container_width=True, height=480)
 
@@ -349,39 +350,43 @@ with tab2:
     st.download_button(
         f"⬇️ Descargar informe CUIT (CSV)",
         csv_inf,
-        f"informe_cuit_{umbral_cuit}ov_{año_sel}.csv",
+        f"informe_cuit_{umbral_cuit}{label_ganado[:2]}_{año_sel}.csv",
         "text/csv",
     )
 
     # Gráfico de concentración por departamento
     st.markdown("#### Distribución por departamento")
     dist_depto = (df_informe.groupby('departamento')
-                  .agg(establecimientos=('renspa','count'), ovinos=('total ovinos','sum'))
-                  .sort_values('ovinos', ascending=True).reset_index())
+                  .agg(establecimientos=('renspa','count'), stock=(col_stock,'sum'))
+                  .sort_values('stock', ascending=True).reset_index())
 
     fig_depto = go.Figure()
     fig_depto.add_trace(go.Bar(
         y=dist_depto['departamento'],
-        x=dist_depto['ovinos'],
+        x=dist_depto['stock'],
         orientation='h',
-        name='Ovinos',
-        marker_color='#3fb950',
-        text=dist_depto['ovinos'].apply(lambda x: f"{int(x):,}"),
+        name=tipo_stock,
+        marker_color='#3fb950' if tipo_stock == "Ovinos" else '#58a6ff',
+        text=dist_depto['stock'].apply(lambda x: f"{int(x):,}"),
         textposition='outside',
     ))
-    fig_depto.add_trace(go.Bar(
-        y=dist_depto['departamento'],
-        x=dist_depto['establecimientos'] * (dist_depto['ovinos'].max() / dist_depto['establecimientos'].max()),
-        orientation='h',
-        name='Establecimientos (escalado)',
-        marker_color='#58a6ff',
-        opacity=0.5,
-    ))
+    # Barra escalada de establecimientos
+    max_stock = dist_depto['stock'].max()
+    max_est   = dist_depto['establecimientos'].max()
+    if max_est > 0:
+        fig_depto.add_trace(go.Bar(
+            y=dist_depto['departamento'],
+            x=dist_depto['establecimientos'] * (max_stock / max_est),
+            orientation='h',
+            name='Establecimientos (escalado)',
+            marker_color='#d2a8ff',
+            opacity=0.45,
+        ))
     fig_depto.update_layout(
         **PLOTLY_LAYOUT,
         barmode='overlay',
         height=max(300, len(dist_depto) * 32),
-        title=f"Ovinos ≥{umbral_cuit} por departamento",
+        title=f"{tipo_stock} ≥{umbral_cuit:,} por departamento · {año_sel}",
         xaxis_title="Cabezas",
     )
     st.plotly_chart(fig_depto, use_container_width=True)
