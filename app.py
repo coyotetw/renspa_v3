@@ -203,35 +203,40 @@ with st.sidebar:
     deptos_all = sorted(df_year['departamento'].unique())
     deptos = st.multiselect("Departamentos", options=deptos_all, default=deptos_all)
 
-    # Informe primordial: umbral CUIT — sigue al tipo_stock seleccionado
-    st.markdown("---")
-    st.markdown("**Informe de productores**")
-    umbral_cuit = st.number_input(f"Umbral {tipo_stock} para informe CUIT", min_value=0, value=1000, step=100)
-
     st.markdown("---")
     st.caption(f"Datos cargados: {len(df):,} registros · {df['periodo'].nunique()} periodos")
 
 # ─── FILTERED DATA ────────────────────────────────────────────────────────────
-mask         = (df_year[col_stock] >= min_animales) & (df_year['departamento'].isin(deptos))
-df_filtered  = df_year[mask].copy()
-df_cuit_inf  = df_year[(df_year[col_stock] >= umbral_cuit) & (df_year['departamento'].isin(deptos))].copy()
+# Un solo umbral: min_animales aplica tanto al mapa/tabla como al informe CUIT
+mask        = (df_year[col_stock] >= min_animales) & (df_year['departamento'].isin(deptos))
+df_filtered = df_year[mask].copy()
+df_cuit_inf = df_filtered.copy()   # ← mismo dataset, sin duplicar lógica
+umbral_cuit = min_animales         # alias para usar en títulos
 
 # ─── HEADER ──────────────────────────────────────────────────────────────────
 col_h1, col_h2 = st.columns([3, 1])
 with col_h1:
     st.markdown(f"# Monitor Ganadero · Ciclo {año_sel}")
-    st.markdown(f"<small style='color:#8b949e'>Actualizado: {datetime.now().strftime('%d/%m/%Y')} · Filtro activo: ≥{min_animales} {tipo_stock}</small>", unsafe_allow_html=True)
+    st.markdown(f"<small style='color:#8b949e'>Actualizado: {datetime.now().strftime('%d/%m/%Y')} · Filtro activo: ≥{min_animales:,} {tipo_stock}</small>", unsafe_allow_html=True)
 with col_h2:
-    # Botón de impresión
+    # Botón de impresión via JS inyectado en iframe-friendly way
     st.markdown("""
-    <button onclick="window.print()" style="
-        width:100%; padding:.55rem 1rem; margin-top:1.5rem;
-        background:#21262d; border:1px solid #30363d; border-radius:10px;
-        color:#e6edf3; font-family:'DM Sans',sans-serif; font-size:.9rem;
-        cursor:pointer; transition:all .2s;
-    " onmouseover="this.style.borderColor='#3fb950'" onmouseout="this.style.borderColor='#30363d'">
-        🖨️ Imprimir / Exportar PDF
-    </button>
+    <div style="margin-top:1.5rem">
+      <a href="javascript:void(0)" onclick="window.parent.print()" style="
+          display:block; text-align:center; padding:.55rem 1rem;
+          background:#21262d; border:1px solid #30363d; border-radius:10px;
+          color:#e6edf3; font-family:'DM Sans',sans-serif; font-size:.9rem;
+          text-decoration:none; transition:all .2s;
+      " onmouseover="this.style.borderColor='#3fb950';this.style.color='#3fb950'"
+         onmouseout="this.style.borderColor='#30363d';this.style.color='#e6edf3'">
+        🖨️ Imprimir / PDF
+      </a>
+    </div>
+    <div style="margin-top:.5rem">
+      <small style='color:#8b949e;font-size:.72rem'>
+        💡 Para PDF: Imprimir → Guardar como PDF en el diálogo del navegador
+      </small>
+    </div>
     """, unsafe_allow_html=True)
 
 st.markdown("---")
@@ -258,17 +263,18 @@ m2.metric(f"Total {tipo_stock}", f"{int(df_filtered[col_stock].sum()):,}".replac
 m3.metric("Total Ovinos (universo)", f"{int(df_year['total ovinos'].sum()):,}".replace(",", "."),
           delta=get_delta('total ovinos', año_sel, año_ant, deptos_all))
 m4.metric("Superficie total (Ha)", f"{int(df_filtered['superficie'].sum()):,}".replace(",", "."))
-m5.metric(f"CUIT únicos (≥{umbral_cuit} ov.)", f"{df_cuit_inf['cuit cuil'].nunique():,}")
+m5.metric(f"CUIT únicos (≥{min_animales:,} {tipo_stock[:2].lower()})", f"{df_cuit_inf['cuit cuil'].nunique():,}")
 
 st.markdown("---")
 
 # ─── TABS ─────────────────────────────────────────────────────────────────────
-tab1, tab2, tab3, tab4, tab5 = st.tabs([
+tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
     "🗺️ Mapa geolocalizado",
     "📋 Informe CUIT",
     "📈 Evolución histórica",
     "📊 Análisis por departamento",
     "🔍 Explorador de variables",
+    "📄 Informe Ejecutivo",
 ])
 
 # ════════════════════════════════════════════════════════════════════
@@ -579,3 +585,195 @@ with tab5:
         csv_all = df_filtered.to_csv(index=False).encode('utf-8')
         st.download_button("⬇️ Descargar datos filtrados (CSV)", csv_all,
                            f"datos_filtrados_{año_sel}.csv", "text/csv")
+
+# ════════════════════════════════════════════════════════════════════
+# TAB 6 · INFORME EJECUTIVO (imprimible)
+# ════════════════════════════════════════════════════════════════════
+with tab6:
+    # Datos para el informe
+    total_stock_filt    = int(df_filtered[col_stock].sum())
+    total_ovinos_univ   = int(df_year['total ovinos'].sum())
+    total_bovinos_univ  = int(df_year['total bovinos'].sum())
+    total_sup           = int(df_filtered['superficie'].sum())
+    cuits_unicos        = df_filtered['cuit cuil'].nunique()
+    n_prod              = len(df_filtered)
+
+    # Top 5 productores
+    top5 = (df_filtered[['establecimiento','departamento','cuit cuil', col_stock,'superficie']]
+            .sort_values(col_stock, ascending=False).head(5).reset_index(drop=True))
+    top5.index += 1
+
+    # Distribución por departamento
+    dist_ej = (df_filtered.groupby('departamento')
+               .agg(prod=(col_stock,'count'), stock=(col_stock,'sum'))
+               .sort_values('stock', ascending=False).reset_index())
+
+    # Evolución últimos periodos
+    evol_ej = (df[df['periodo'] > 0].groupby('periodo')[col_stock].sum().reset_index()
+               .sort_values('periodo'))
+
+    # ── Render del informe en HTML estilizado ──────────────────────
+    fecha_hoy  = datetime.now().strftime('%d de %B de %Y')
+    deptos_str = ", ".join(deptos) if len(deptos) <= 6 else f"{len(deptos)} departamentos"
+
+    top5_rows = ""
+    for _, row in top5.iterrows():
+        top5_rows += f"""
+        <tr>
+          <td>{int(_)}</td>
+          <td><b>{row['establecimiento']}</b></td>
+          <td>{row['departamento']}</td>
+          <td>{row['cuit cuil']}</td>
+          <td style="text-align:right"><b>{int(row[col_stock]):,}</b></td>
+          <td style="text-align:right">{int(row['superficie']):,} ha</td>
+        </tr>"""
+
+    dist_rows = ""
+    for _, row in dist_ej.iterrows():
+        pct = row['stock'] / total_stock_filt * 100 if total_stock_filt > 0 else 0
+        dist_rows += f"""
+        <tr>
+          <td>{row['departamento']}</td>
+          <td style="text-align:right">{int(row['prod']):,}</td>
+          <td style="text-align:right">{int(row['stock']):,}</td>
+          <td style="text-align:right">{pct:.1f}%</td>
+        </tr>"""
+
+    # Variación vs año anterior
+    delta_txt = ""
+    if año_ant:
+        stock_ant = int(df[df['periodo'] == año_ant][col_stock].sum())
+        if stock_ant > 0:
+            var = (total_stock_filt - stock_ant) / stock_ant * 100
+            arrow = "▲" if var >= 0 else "▼"
+            color_var = "#2ea043" if var >= 0 else "#da3633"
+            delta_txt = f'<span style="color:{color_var}">{arrow} {abs(var):.1f}% vs {año_ant}</span>'
+
+    html_informe = f"""
+    <style>
+      @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;600;700&display=swap');
+      .informe-wrap {{
+        font-family: 'DM Sans', sans-serif;
+        background: #fff; color: #1a1a2e;
+        padding: 2.5rem 3rem; border-radius: 12px;
+        max-width: 900px; margin: 0 auto;
+        box-shadow: 0 4px 24px rgba(0,0,0,.12);
+      }}
+      .inf-header {{ display:flex; justify-content:space-between; align-items:flex-start;
+                     border-bottom: 3px solid #1a1a2e; padding-bottom: 1rem; margin-bottom:1.5rem; }}
+      .inf-header h1 {{ font-size:1.6rem; font-weight:700; margin:0; }}
+      .inf-header .meta {{ font-size:.8rem; color:#666; text-align:right; line-height:1.7; }}
+      .inf-section {{ margin: 1.4rem 0; }}
+      .inf-section h2 {{ font-size:.85rem; font-weight:700; text-transform:uppercase;
+                         letter-spacing:.08em; color:#666; border-bottom:1px solid #e5e7eb;
+                         padding-bottom:.3rem; margin-bottom:.8rem; }}
+      .kpi-grid {{ display:grid; grid-template-columns: repeat(4,1fr); gap:.8rem; }}
+      .kpi-box {{ background:#f8fafc; border:1px solid #e5e7eb; border-radius:8px;
+                  padding:.8rem 1rem; }}
+      .kpi-box .val {{ font-size:1.5rem; font-weight:700; color:#1a1a2e; }}
+      .kpi-box .lbl {{ font-size:.7rem; color:#888; text-transform:uppercase; letter-spacing:.05em; }}
+      .kpi-box .delta {{ font-size:.78rem; margin-top:.2rem; }}
+      table {{ width:100%; border-collapse:collapse; font-size:.82rem; }}
+      th {{ background:#1a1a2e; color:#fff; padding:.5rem .7rem; text-align:left; font-weight:600; }}
+      td {{ padding:.45rem .7rem; border-bottom:1px solid #f0f0f0; }}
+      tr:nth-child(even) td {{ background:#fafafa; }}
+      .footer {{ margin-top:2rem; padding-top:1rem; border-top:1px solid #e5e7eb;
+                 font-size:.72rem; color:#aaa; display:flex; justify-content:space-between; }}
+      @media print {{
+        .informe-wrap {{ box-shadow:none; padding:1rem; }}
+        body {{ background: white !important; }}
+      }}
+    </style>
+
+    <div class="informe-wrap">
+      <div class="inf-header">
+        <div>
+          <h1>🐑 Monitor Ganadero · Chubut</h1>
+          <div style="font-size:.9rem;color:#555;margin-top:.3rem">
+            Informe ejecutivo · Ciclo <b>{año_sel}</b> · {tipo_stock} ≥ <b>{min_animales:,}</b> cabezas
+          </div>
+        </div>
+        <div class="meta">
+          Generado: {fecha_hoy}<br>
+          Departamentos: {deptos_str}<br>
+          Fuente: RENSPA · Prov. Chubut
+        </div>
+      </div>
+
+      <div class="inf-section">
+        <h2>Indicadores clave</h2>
+        <div class="kpi-grid">
+          <div class="kpi-box">
+            <div class="lbl">Establecimientos</div>
+            <div class="val">{n_prod:,}</div>
+          </div>
+          <div class="kpi-box">
+            <div class="lbl">CUITs únicos</div>
+            <div class="val">{cuits_unicos:,}</div>
+          </div>
+          <div class="kpi-box">
+            <div class="lbl">Stock {tipo_stock}</div>
+            <div class="val">{total_stock_filt:,}</div>
+            <div class="delta">{delta_txt}</div>
+          </div>
+          <div class="kpi-box">
+            <div class="lbl">Superficie total</div>
+            <div class="val">{total_sup:,} ha</div>
+          </div>
+        </div>
+        <div class="kpi-grid" style="margin-top:.8rem">
+          <div class="kpi-box">
+            <div class="lbl">Ovinos universo (año)</div>
+            <div class="val">{total_ovinos_univ:,}</div>
+          </div>
+          <div class="kpi-box">
+            <div class="lbl">Bovinos universo (año)</div>
+            <div class="val">{total_bovinos_univ:,}</div>
+          </div>
+          <div class="kpi-box">
+            <div class="lbl">Ov. en filtro / universo</div>
+            <div class="val">{(total_stock_filt/total_ovinos_univ*100 if col_stock=='total ovinos' and total_ovinos_univ>0 else 0):.1f}%</div>
+          </div>
+          <div class="kpi-box">
+            <div class="lbl">Sup. media (ha/estab.)</div>
+            <div class="val">{(total_sup/n_prod if n_prod>0 else 0):,.0f}</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="inf-section">
+        <h2>Top 5 establecimientos por {tipo_stock}</h2>
+        <table>
+          <tr>
+            <th>#</th><th>Establecimiento</th><th>Departamento</th>
+            <th>CUIT</th><th style="text-align:right">{tipo_stock}</th>
+            <th style="text-align:right">Superficie</th>
+          </tr>
+          {top5_rows}
+        </table>
+      </div>
+
+      <div class="inf-section">
+        <h2>Distribución por departamento</h2>
+        <table>
+          <tr>
+            <th>Departamento</th>
+            <th style="text-align:right">Establecimientos</th>
+            <th style="text-align:right">{tipo_stock}</th>
+            <th style="text-align:right">% del total</th>
+          </tr>
+          {dist_rows}
+        </table>
+      </div>
+
+      <div class="footer">
+        <span>Monitor Ganadero · Provincia del Chubut · RENSPA</span>
+        <span>Ciclo {año_sel} · Filtro: {tipo_stock} ≥ {min_animales:,} · {deptos_str}</span>
+      </div>
+    </div>
+    """
+
+    st.markdown(html_informe, unsafe_allow_html=True)
+
+    st.markdown("")
+    st.info("💡 **Para exportar a PDF:** usá el atajo **Ctrl+P** (Win) o **Cmd+P** (Mac) → en el diálogo de impresión elegí *Guardar como PDF*. El informe está optimizado para impresión.")
