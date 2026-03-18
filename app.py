@@ -195,7 +195,14 @@ with st.sidebar:
     st.markdown("**Filtros de stock**")
     tipo_stock = st.selectbox("Tipo de ganado", ["Ovinos", "Bovinos"])
     col_stock  = 'total ovinos' if tipo_stock == "Ovinos" else 'total bovinos'
-    min_animales = st.number_input(f"Mínimo de {tipo_stock}", min_value=0, value=100, step=50)
+    min_animales = st.number_input(
+        f"Mínimo de {tipo_stock}",
+        min_value=0,
+        value=1000,
+        step=100,
+        format="%d",
+        help="Ingresá el valor y presioná Enter para aplicar"
+    )
 
     st.markdown("---")
     st.markdown("**Filtros territoriales**")
@@ -330,8 +337,22 @@ with tab1:
 # ════════════════════════════════════════════════════════════════════
 with tab2:
     label_ganado = tipo_stock.lower()  # "ovinos" o "bovinos"
-    st.markdown(f"### Productores {label_ganado} con ≥ {umbral_cuit:,} cabezas · Ciclo {año_sel}")
-    st.markdown(f"*Universo de CUITs únicos — filtro: {tipo_stock} ≥ {umbral_cuit:,} · departamentos seleccionados*")
+
+    # Banner de filtro activo — siempre visible para confirmar qué está aplicado
+    st.markdown(f"""
+    <div style="background:#21262d; border:1px solid #3fb950; border-radius:8px;
+                padding:.6rem 1rem; margin-bottom:1rem; display:flex; align-items:center; gap:.8rem;">
+      <span style="font-size:1.2rem">🔎</span>
+      <span style="color:#e6edf3; font-size:.9rem">
+        Filtro activo: <b style="color:#3fb950">{tipo_stock} ≥ {int(min_animales):,} cabezas</b>
+        &nbsp;·&nbsp; Año: <b>{año_sel}</b>
+        &nbsp;·&nbsp; {len(deptos)} departamento(s) seleccionado(s)
+      </span>
+    </div>
+    """, unsafe_allow_html=True)
+
+    st.markdown(f"### Productores {label_ganado} con ≥ {int(min_animales):,} cabezas · Ciclo {año_sel}")
+    st.markdown(f"*Universo de CUITs únicos — filtro: {tipo_stock} ≥ {int(min_animales):,} · departamentos seleccionados*")
 
     cols_informe = ['cuit cuil', 'establecimiento', 'departamento', 'renspa',
                     'total ovinos', 'total bovinos', 'superficie']
@@ -347,7 +368,7 @@ with tab2:
     r1, r2, r3 = st.columns(3)
     r1.metric("Establecimientos", f"{len(df_informe):,}")
     r2.metric("CUITs únicos", f"{df_informe['cuit cuil'].nunique():,}")
-    r3.metric(f"{tipo_stock} acumulados",          # ← label dinámico
+    r3.metric(f"{tipo_stock} acumulados",
               f"{int(df_informe[col_stock].sum()):,}".replace(",","."))
 
     st.dataframe(df_informe, use_container_width=True, height=480)
@@ -356,7 +377,7 @@ with tab2:
     st.download_button(
         f"⬇️ Descargar informe CUIT (CSV)",
         csv_inf,
-        f"informe_cuit_{umbral_cuit}{label_ganado[:2]}_{año_sel}.csv",
+        f"informe_cuit_{int(min_animales)}{label_ganado[:2]}_{año_sel}.csv",
         "text/csv",
     )
 
@@ -392,7 +413,7 @@ with tab2:
         **PLOTLY_LAYOUT,
         barmode='overlay',
         height=max(300, len(dist_depto) * 32),
-        title=f"{tipo_stock} ≥{umbral_cuit:,} por departamento · {año_sel}",
+        title=f"{tipo_stock} ≥{int(min_animales):,} por departamento · {año_sel}",
         xaxis_title="Cabezas",
     )
     st.plotly_chart(fig_depto, use_container_width=True)
