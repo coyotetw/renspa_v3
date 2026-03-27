@@ -1,0 +1,14 @@
+# Datos sensibles — nunca al repo
+renspa_unificado.csv
+*.csv
+
+# Secrets de Streamlit
+.streamlit/secrets.toml
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.env
+venv/
+.venv/
