@@ -159,8 +159,7 @@ def apply_theme(fig):
 @st.cache_data
 def load_data():
     # ── Lee el CSV desde Google Drive usando el ID guardado en secrets ──
-    file_id = st.secrets["GDRIVE_FILE_ID"]
-    url = f"https://drive.google.com/uc?export=download&id={file_id}"
+    url = f"https://drive.google.com/uc?export=download&id=1gMZS-9matf_QTkhcmBkV0Oc77lhUr85F"
     df = pd.read_csv(url)
 
     df['periodo'] = pd.to_numeric(df['periodo'], errors='coerce').fillna(0).astype(int)
